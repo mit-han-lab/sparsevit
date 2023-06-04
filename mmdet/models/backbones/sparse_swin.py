@@ -78,7 +78,7 @@ class WindowMSA(BaseModule):
     def init_weights(self):
         trunc_normal_(self.relative_position_bias_table, std=0.02)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, w_index=None):
         """
         Args:
 
@@ -86,8 +86,8 @@ class WindowMSA(BaseModule):
             mask (tensor | None, Optional): mask with shape of (num_windows,
                 Wh*Ww, Wh*Ww), value should be between (-inf, 0].
         """
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads,
+        B, nW, N, C = x.shape
+        qkv = self.qkv(x).reshape(B*nW, N, 3, self.num_heads,
                                   C // self.num_heads).permute(2, 0, 3, 1, 4)
         # make torchscript happy (cannot use tensor as tuple)
         q, k, v = qkv[0], qkv[1], qkv[2]
@@ -105,15 +105,21 @@ class WindowMSA(BaseModule):
         attn = attn + relative_position_bias.unsqueeze(0)
 
         if mask is not None:
-            nW = mask.shape[0]
-            attn = attn.view(B // nW, nW, self.num_heads, N,
-                             N) + mask.unsqueeze(1).unsqueeze(0)
+            ori_nW = mask.shape[0]
+            mask = mask.unsqueeze(0).expand(B, -1, -1, -1)
+            
+            if w_index is not None:
+                mask_index = w_index.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, N, N)
+                mask = torch.gather(mask, dim=1, index=mask_index)
+            #nW = mask.shape[0]
+            attn = attn.view(B, nW, self.num_heads, N,
+                             N) + mask.unsqueeze(2)
             attn = attn.view(-1, self.num_heads, N, N)
         attn = self.softmax(attn)
 
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = (attn @ v).transpose(1, 2).reshape(B, nW, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -177,27 +183,25 @@ class ShiftWindowMSA(BaseModule):
 
         self.drop = build_dropout(dropout_layer)
 
-    def forward(self, query, hw_shape):
-        B, L, C = query.shape
+    def forward(self, query_windows, hw_shape, w_index=None):
+        B, nW, N, C = query_windows.shape
         H, W = hw_shape
-        assert L == H * W, 'input feature has wrong size'
-        query = query.view(B, H, W, C)
+        #assert L == H * W, 'input feature has wrong size'
+        #query = query.view(B, H, W, C)
 
         # pad feature maps to multiples of window size
         pad_r = (self.window_size - W % self.window_size) % self.window_size
         pad_b = (self.window_size - H % self.window_size) % self.window_size
-        query = F.pad(query, (0, 0, 0, pad_r, 0, pad_b))
-        H_pad, W_pad = query.shape[1], query.shape[2]
+        #query = F.pad(query, (0, 0, 0, pad_r, 0, pad_b))
+        #H_pad, W_pad = query.shape[1], query.shape[2]
+        H_pad = H+pad_b
+        W_pad = W+pad_r
 
         # cyclic shift
         if self.shift_size > 0:
-            shifted_query = torch.roll(
-                query,
-                shifts=(-self.shift_size, -self.shift_size),
-                dims=(1, 2))
 
             # calculate attention mask for SW-MSA
-            img_mask = torch.zeros((1, H_pad, W_pad, 1), device=query.device)
+            img_mask = torch.zeros((1, H_pad, W_pad, 1), device=query_windows.device)
             h_slices = (slice(0, -self.window_size),
                         slice(-self.window_size,
                               -self.shift_size), slice(-self.shift_size, None))
@@ -219,55 +223,15 @@ class ShiftWindowMSA(BaseModule):
                                               float(-100.0)).masked_fill(
                                                   attn_mask == 0, float(0.0))
         else:
-            shifted_query = query
+            #shifted_query = query
             attn_mask = None
 
-        # nW*B, window_size, window_size, C
-        query_windows = self.window_partition(shifted_query)
-        # nW*B, window_size*window_size, C
-        query_windows = query_windows.view(-1, self.window_size**2, C)
-
         # W-MSA/SW-MSA (nW*B, window_size*window_size, C)
-        attn_windows = self.w_msa(query_windows, mask=attn_mask)
+        attn_windows = self.w_msa(query_windows, mask=attn_mask, w_index=w_index)
 
-        # merge windows
-        attn_windows = attn_windows.view(-1, self.window_size,
-                                         self.window_size, C)
+        return self.drop(attn_windows)
 
-        # B H' W' C
-        shifted_x = self.window_reverse(attn_windows, H_pad, W_pad)
-        # reverse cyclic shift
-        if self.shift_size > 0:
-            x = torch.roll(
-                shifted_x,
-                shifts=(self.shift_size, self.shift_size),
-                dims=(1, 2))
-        else:
-            x = shifted_x
-
-        if pad_r > 0 or pad_b:
-            x = x[:, :H, :W, :].contiguous()
-
-        x = x.view(B, H * W, C)
-
-        x = self.drop(x)
-        return x
-
-    def window_reverse(self, windows, H, W):
-        """
-        Args:
-            windows: (num_windows*B, window_size, window_size, C)
-            H (int): Height of image
-            W (int): Width of image
-        Returns:
-            x: (B, H, W, C)
-        """
-        window_size = self.window_size
-        B = int(windows.shape[0] / (H * W / window_size / window_size))
-        x = windows.view(B, H // window_size, W // window_size, window_size,
-                         window_size, -1)
-        x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
-        return x
+    
 
     def window_partition(self, x):
         """
@@ -330,6 +294,8 @@ class SwinBlock(BaseModule):
 
         self.init_cfg = init_cfg
         self.with_cp = with_cp
+        self.window_size = window_size
+        self.shift_size = window_size // 2 if shift else 0
 
         self.norm1 = build_norm_layer(norm_cfg, embed_dims)[1]
         self.attn = ShiftWindowMSA(
@@ -355,26 +321,76 @@ class SwinBlock(BaseModule):
             add_identity=True,
             init_cfg=None)
 
-    def forward(self, x, hw_shape):
+    def forward(self, x_windows, hw_shape, pad_shape, w_index):
 
-        def _inner_forward(x):
-            identity = x
-            x = self.norm1(x)
-            x = self.attn(x, hw_shape)
+        def _inner_forward(x_windows, hw_shape, pad_shape, w_index):
+            H, W = hw_shape
+            pad_r, pad_b = pad_shape
+            Hp = H+pad_b
+            Wp = W+pad_r
+            B, nW, N, C = x_windows.shape
+            
+            
+            identity = x_windows
+            if w_index is not None:
+                win_index = w_index.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, N, C)
+                
+                x_windows = torch.gather(x_windows, dim=1, index=win_index)
+                
+                res_identity = x_windows
+            else:
+                res_identity = x_windows
+            #identity = x
+            x_windows = self.norm1(x_windows)
+            attn_windows = self.attn(x_windows, hw_shape, w_index=w_index)
 
-            x = x + identity
+            x_windows = attn_windows + res_identity
 
-            identity = x
-            x = self.norm2(x)
-            x = self.ffn(x, identity=identity)
+            res_identity = x_windows
+            x_windows = self.norm2(x_windows)
+            x_windows = self.ffn(x_windows, identity=res_identity)
+            
+            if w_index is not None:
+                win_index = w_index.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, N, C)
+                x_windows = torch.scatter(identity, dim=1, index=win_index, src=x_windows)
 
+            # merge windows
+            x_windows = x_windows.view(-1, self.window_size, self.window_size, C)
+            shifted_x = self.window_reverse(x_windows, Hp, Wp)  # B H' W' C
+
+            # reverse cyclic shift
+            if self.shift_size > 0:
+                x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+            else:
+                x = shifted_x
+
+            if pad_r > 0 or pad_b > 0:
+                x = x[:, :H, :W, :].contiguous()
+
+            x = x.view(B, H * W, C)
             return x
 
         if self.with_cp and x.requires_grad:
-            x = cp.checkpoint(_inner_forward, x)
+            x = cp.checkpoint(_inner_forward, x_windows, hw_shape, pad_shape, w_index)
         else:
-            x = _inner_forward(x)
+            x = _inner_forward(x_windows, hw_shape, pad_shape, w_index)
 
+        return x
+    
+    def window_reverse(self, windows, H, W):
+        """
+        Args:
+            windows: (num_windows*B, window_size, window_size, C)
+            H (int): Height of image
+            W (int): Width of image
+        Returns:
+            x: (B, H, W, C)
+        """
+        window_size = self.window_size
+        B = int(windows.shape[0] / (H * W / window_size / window_size))
+        x = windows.view(B, H // window_size, W // window_size, window_size,
+                         window_size, -1)
+        x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
         return x
 
 
@@ -418,6 +434,7 @@ class SwinBlockSequence(BaseModule):
                  drop_rate=0.,
                  attn_drop_rate=0.,
                  drop_path_rate=0.,
+                 pruning_ratios=0.,
                  downsample=None,
                  act_cfg=dict(type='GELU'),
                  norm_cfg=dict(type='LN'),
@@ -430,6 +447,11 @@ class SwinBlockSequence(BaseModule):
             assert len(drop_path_rates) == depth
         else:
             drop_path_rates = [deepcopy(drop_path_rate) for _ in range(depth)]
+        
+        if not isinstance(pruning_ratios, list):
+            self.pruning_ratios = [pruning_ratios for i in range(depth)]
+        else:
+            self.pruning_ratios = pruning_ratios
 
         self.blocks = ModuleList()
         for i in range(depth):
@@ -450,21 +472,105 @@ class SwinBlockSequence(BaseModule):
                 init_cfg=None)
             self.blocks.append(block)
 
+        self.window_size = window_size
         self.downsample = downsample
 
+    def window_process(self, x, hw_shape, pad_shape, shift, act_mag):
+        B, L, C = x.shape
+        H, W = hw_shape
+        pad_r, pad_b = pad_shape
+        assert L == H * W, 'input feature has wrong size'
+        query = x.view(B, H, W, C)
+        
+        # shape --> (B, H+pad_b, W+pad_r, C)
+        query = F.pad(query, (0, 0, 0, pad_r, 0, pad_b))
+        H_pad, W_pad = query.shape[1], query.shape[2]
+        if shift:
+            shift_size = self.window_size // 2
+            shifted_query = torch.roll(
+                query,
+                shifts=(-shift_size, -shift_size),
+                dims=(1, 2))
+        else:
+            shifted_query = query
+        
+        if act_mag is not None:
+            act_mag = act_mag.view(B, H, W, 1)
+            pad_act = F.pad(act_mag, (0, 0, 0, pad_r, 0, pad_b))
+            if shift:
+                shift_size = self.window_size // 2
+                pad_act = torch.roll(
+                    pad_act,
+                    shifts=(-shift_size, -shift_size),
+                    dims=(1, 2))
+        else:
+            pad_act = None
+        
+        return shifted_query, pad_act
+
     def forward(self, x, hw_shape):
-        for block in self.blocks:
-            x = block(x, hw_shape)
+        H, W = hw_shape
+        pad_r = (self.window_size - W % self.window_size) % self.window_size
+        pad_b = (self.window_size - H % self.window_size) % self.window_size
+        pad_shape = [pad_r, pad_b]
+        act_mag = None
+        w_index = None
+        shift_w_index = None
+        for i, block in enumerate(self.blocks):
+            shift=False if i % 2 == 0 else True
+            if self.pruning_ratios[i] > 0 and act_mag is None:
+                act_mag = torch.abs(x)
+                act_mag = torch.mean(act_mag, -1)
+            shifted_query, pad_act = self.window_process(x, hw_shape, pad_shape, shift, act_mag)
+            query_windows = self.window_partition(shifted_query)
+            B, nW = query_windows.shape[:2]
+            if act_mag is not None:
+                res_nW = int(nW * (1 - self.pruning_ratios[i]))
+                if not shift:
+                    if w_index is None:
+                        win_act = self.window_partition(pad_act)
+                        win_act = torch.linalg.vector_norm(win_act.squeeze(-1), ord=2, dim=2)
+                        value, w_index = torch.topk(win_act, res_nW, dim=1)
+                    else:
+                        assert res_nW <= w_index.shape[1]
+                        w_index = w_index[:, :res_nW]
+                elif shift:
+                    if shift_w_index is None:
+                        win_act = self.window_partition(pad_act)
+                        win_act = torch.linalg.vector_norm(win_act.squeeze(-1), ord=2, dim=2)
+                        value, shift_w_index = torch.topk(win_act, res_nW, dim=1)
+                    else:
+                        assert res_nW <= shift_w_index.shape[1]
+                        shift_w_index = shift_w_index[:, :res_nW]
+            if not shift:
+                x = block(query_windows, hw_shape, pad_shape, w_index)
+            else:
+                x = block(query_windows, hw_shape, pad_shape, shift_w_index)
 
         if self.downsample:
             x_down, down_hw_shape = self.downsample(x, hw_shape)
             return x_down, down_hw_shape, x, hw_shape
         else:
             return x, hw_shape, x, hw_shape
+    
+    def window_partition(self, x):
+        """
+        Args:
+            x: (B, H, W, C)
+        Returns:
+            windows: (B, num_windows, window_size*window_size, C)
+        """
+        B, H, W, C = x.shape
+        window_size = self.window_size
+        x = x.view(B, H // window_size, window_size, W // window_size,
+                   window_size, C)
+        windows = x.permute(0, 1, 3, 2, 4, 5).contiguous()
+        windows = windows.view(B, -1, window_size*window_size, C)
+        return windows
 
 
 @BACKBONES.register_module()
-class SwinTransformer(BaseModule):
+class SparseViT(BaseModule):
     """ Swin Transformer
     A PyTorch implement of : `Swin Transformer:
     Hierarchical Vision Transformer using Shifted Windows`  -
@@ -568,7 +674,7 @@ class SwinTransformer(BaseModule):
         else:
             raise TypeError('pretrained must be a str or None')
 
-        super(SwinTransformer, self).__init__(init_cfg=init_cfg)
+        super(SparseViT, self).__init__(init_cfg=init_cfg)
 
         num_layers = len(depths)
         self.out_indices = out_indices
@@ -641,7 +747,7 @@ class SwinTransformer(BaseModule):
 
     def train(self, mode=True):
         """Convert the model into training mode while keep layers freezed."""
-        super(SwinTransformer, self).train(mode)
+        super(SparseViT, self).train(mode)
         self._freeze_stages()
 
     def _freeze_stages(self):
