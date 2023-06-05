@@ -6,6 +6,7 @@ import time
 import warnings
 import random
 import numpy as np
+import types
 
 import mmcv
 import torch
@@ -214,8 +215,6 @@ def main():
     #for i in range(11):
     #    img_size = 480 + i*32
     print(img_size, measure(model, img_size))
-
-    
 
 
 if __name__ == '__main__':
