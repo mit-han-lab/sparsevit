@@ -24,7 +24,7 @@ from torchpack.utils.config import configs
 
 from mmdet.datasets import build_dataloader, build_dataset
 from mmdet.models import build_detector
-from mmdet.models.backbones.sparse_swin import SwinBlockSequence
+from mmdet.models.backbones.sparsevit import SwinBlockSequence
 from mmdet.apis import multi_gpu_test
 
 
@@ -418,6 +418,7 @@ def main():
     parser.add_argument("checkpoint", help="checkpoint file")
     parser.add_argument("--max", type=float)
     parser.add_argument("--min", type=float)
+    parser.add_argument("--img_size", type=int, default=[672, 672])
     args = parser.parse_args()
 
     cfg = Config.fromfile(args.config)
@@ -468,18 +469,18 @@ def main():
     load_checkpoint(model, args.checkpoint, map_location="cpu")
     model = fuse_conv_bn(model)
 
-    fp16_cfg = cfg.get("fp16", None)
-    if fp16_cfg is not None:
-        wrap_fp16_model(model)
+    #fp16_cfg = cfg.get("fp16", None)
+    #if fp16_cfg is not None:
+    #    wrap_fp16_model(model)
 
     random.seed(0)
 
     @torch.inference_mode()
-    def measure(model, num_repeats=300, num_warmup=200):
+    def measure(model, num_repeats=300, num_warmup=200, img_size=args.img_size):
         model.eval()
 
         backbone = model.backbone
-        inputs = torch.randn(4, 3, 672, 672).cuda()
+        inputs = torch.randn(4, 3, img_size[0], img_size[1]).cuda()
 
         latencies = []
         for k in range(num_repeats + num_warmup):
@@ -521,7 +522,7 @@ def main():
     #    print("Latency: {:.2f} ms".format(measure(model)))
     #    print("Metric: {:.4f}".format(evaluate(model)))
 
-    search_log = 'search'+'_max'+str(args.max)+'_min'+str(args.min)+'.txt'
+    search_log = 'work_dirs/search'+'_max'+str(args.max)+'_min'+str(args.min)+'.txt'
     searcher = EvolveSearcher(search_log=search_log,)
     searcher.search(
         model,

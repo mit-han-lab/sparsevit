@@ -5,6 +5,8 @@ import os
 import os.path as osp
 import time
 import warnings
+import types
+import random
 
 import mmcv
 import torch
@@ -20,7 +22,39 @@ from mmdet.models import build_detector
 from mmdet.utils import (collect_env, get_device, get_root_logger,
                          replace_cfg_vals, rfnext_init_model,
                          setup_multi_processes, update_data_root)
+from mmdet.models.backbones.sparsevit import SwinBlockSequence
 
+
+def random_sample(model):
+    configs = {}
+    for name, module in model.named_modules():
+        if isinstance(module, SwinBlockSequence):
+            configs[name] = []
+            ratios = []
+            for i in range(module.depth // 2):
+                ratio = random.randint(0, 8)
+                ratios.append(ratio)
+            ratios.sort()
+            for ratio in ratios:
+                configs[name].append(ratio / 10)
+                configs[name].append(ratio / 10)
+                
+            module.pruning_ratios = configs[name]
+    
+    return configs
+
+def select(model, configs):
+    for name, module in model.named_modules():
+        if isinstance(module, SwinBlockSequence):
+            module.pruning_ratios = configs[int(name[16])]
+            print(name, configs[int(name[16])])
+
+def monkey_patch(model):
+    def forward(self, *args, **kwargs):
+        random_sample(self)
+        return type(self).forward(self, *args, **kwargs)
+
+    model.forward = types.MethodType(forward, model)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
@@ -214,6 +248,12 @@ def main():
         train_cfg=cfg.get('train_cfg'),
         test_cfg=cfg.get('test_cfg'))
     model.init_weights()
+
+    if cfg.get('random_sample', False):
+        monkey_patch(model)
+    if cfg.get('pruning_ratios', None):
+        print(cfg.pruning_ratios)
+        select(model, cfg.pruning_ratios)
 
     # init rfnext if 'RFSearchHook' is defined in cfg
     rfnext_init_model(model, cfg=cfg)

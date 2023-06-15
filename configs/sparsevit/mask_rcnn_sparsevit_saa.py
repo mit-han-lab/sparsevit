@@ -1,4 +1,4 @@
-_base_ = '../swin/mask_rcnn_swin-t-p4-w7_fpn_fp16_ms-crop-3x_coco.py'
+_base_ = '../swin/mask_rcnn_swin-t-p4-w7_fpn_fp16_ms-crop-1x_coco.py'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 
@@ -62,5 +62,6 @@ data = dict(
     test=dict(
         pipeline=test_pipeline))
 
-random_sample = False
-pruning_ratios = None
+random_sample = True
+
+load_from = 'work_dirs/mask_rcnn_swin-t-p4-w7_fpn_fp16_ms-crop-3x_coco/epoch_20.pth'

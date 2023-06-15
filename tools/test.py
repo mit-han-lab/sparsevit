@@ -4,6 +4,8 @@ import os
 import os.path as osp
 import time
 import warnings
+import types
+import random
 
 import mmcv
 import torch
@@ -19,7 +21,7 @@ from mmdet.models import build_detector
 from mmdet.utils import (build_ddp, build_dp, compat_cfg, get_device,
                          replace_cfg_vals, rfnext_init_model,
                          setup_multi_processes, update_data_root)
-from mmdet.models.backbones.sparse_swin import SwinBlockSequence
+from mmdet.models.backbones.sparsevit import SwinBlockSequence
 
 
 def random_sample(model):
