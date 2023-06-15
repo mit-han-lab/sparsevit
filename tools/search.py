@@ -20,11 +20,10 @@ from mmcv.parallel import MMDistributedDataParallel
 from mmcv.runner import load_checkpoint, wrap_fp16_model, get_dist_info
 from torch import nn
 from torchpack import distributed as dist
-from torchpack.utils.config import configs
 
 from mmdet.datasets import build_dataloader, build_dataset
 from mmdet.models import build_detector
-from mmdet.models.backbones.sparsevit import SwinBlockSequence
+from mmdet.models.backbones.sparse_swin import SwinBlockSequence
 from mmdet.apis import multi_gpu_test
 
 
@@ -517,10 +516,10 @@ def main():
     def save_func(state_dict):
         print(state_dict["best"])
 
-    #for sample_func in [min, lambda *_: 0.5]:
-    #    print(sample_func, sample(model, sample_func))
-    #    print("Latency: {:.2f} ms".format(measure(model)))
-    #    print("Metric: {:.4f}".format(evaluate(model)))
+    for sample_func in [min, lambda *_: 0.5]:
+        print(sample_func, sample(model, sample_func))
+        print("Latency: {:.2f} ms".format(measure(model)))
+        print("Metric: {:.4f}".format(evaluate(model)))
 
     search_log = 'work_dirs/search'+'_max'+str(args.max)+'_min'+str(args.min)+'.txt'
     searcher = EvolveSearcher(search_log=search_log,)
