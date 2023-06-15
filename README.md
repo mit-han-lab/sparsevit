@@ -5,7 +5,9 @@
 ## Prerequisite
 
 Our code is based on mmdetection 2.28.2
-
+1. mmcv >= 1.3.17, and <= 1.8.0
+2. torchpack
+   
 
 ## Training Pipeline
 
