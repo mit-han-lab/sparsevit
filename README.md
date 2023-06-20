@@ -110,13 +110,13 @@ python tools/measure_latency.py configs/sparsevit/sparsevit_cfg1_42ms.py --img_s
 
 We report our latency on NVIDIA RTX A6000 GPU.
 
-The pre-trained SAA(Sparsity-Aware Adaption) model is [here]().
+The pre-trained SAA(Sparsity-Aware Adaption) model is [here](https://drive.google.com/file/d/1a_AeW0SH9u5aC4htnTpk_Svsqgy5V9h4/view?usp=sharing).
 
 | sparsity configuration | resolution | latency  | bbox mAP | mask mAP | model |
 | ------------- | ---------- | -------- | -------- | -------- | ------| 
 | -- | 672x672 | 47.8 | 42.6 | 38.8 | |
-|[config](configs/sparsevit/sparsevit_cfg1_42ms.py) | 672x672 | 41.3 | 42.4 | 38.5 | |
-|[config](configs/sparsevit/sparsevit_cfg2_35ms.py) | 672x672 | 34.2 | 41.6 | 37.7 | |
-|[config](configs/sparsevit/sparsevit_cfg3_33ms.py)  | 672x672 | 32.9 | 41.3 | 37.4 | |
+|[config](configs/sparsevit/sparsevit_cfg1_42ms.py) | 672x672 | 41.3 | 42.4 | 38.5 | [link](https://drive.google.com/file/d/1tIs-r9IgepnATeidmQq34QqCH-Wp5OgY/view?usp=sharing) |
+|[config](configs/sparsevit/sparsevit_cfg2_35ms.py) | 672x672 | 34.2 | 41.6 | 37.7 | [link](https://drive.google.com/file/d/1Md_IXHuwQY1B21XulNPAGaN2YZhOqjeu/view?usp=sharing) |
+|[config](configs/sparsevit/sparsevit_cfg3_33ms.py)  | 672x672 | 32.9 | 41.3 | 37.4 | [link](https://drive.google.com/file/d/1ruJ3SbFwJMaV4NAFY-U4nUzS8gTXZiV-/view?usp=drive_link) |
 
 
