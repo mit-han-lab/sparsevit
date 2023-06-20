@@ -4,7 +4,7 @@
 
 <center >
 <figure class="half">
-<img src='resources/image.png' width=300> <img src='resources/image-1.png' width=300>
+<img src='resources/image.png' width=280> <img src='resources/image-1.png' width=280>
 </figure>
 </center>
 
