@@ -21,6 +21,8 @@ or download the checkpoint from [model](https://download.openmmlab.com/mmdetecti
 
 ### Sparsity-Aware Adaption
 
+
+
 ```
 bash tools/dist_train.sh configs/sparsevit/mask_rcnn_sparsevit_saa.py 8
 ```
@@ -36,6 +38,19 @@ torchpack dist-run -np 8 python tools/search.py configs/sparsevit/mask_rcnn_spar
 
 Finetune the SAA model with optimal sparsity configuration.
 
+For example, the best sparsity configuration under 42ms is 
+
+backbone.stages.0 : 0.3  
+backbone.stages.1 :  0     
+backbone.stages.2_1 : 0.1     
+backbone.stages.2_2 : 0.2     
+backbone.stages.2_3 : 0.2     
+backbone.stages.3 :  0 
+
+```
+bash tools/dist_train.sh configs/sparsevit/sparsevit_cfg1_42ms.py 8
+```
+
 ## Latency Measure
 
 ```
@@ -49,4 +64,13 @@ python tools/measure_latency.py configs/sparsevit/mask_rcnn_sparsevit.py --img_s
 
 
 ## Results
+
+
+| sparsity configuration | resolution | latency  | bbox mAP | mask mAP | model |
+| ------------- | ---------- | -------- | -------- | -------- | ------| 
+| -- | 672x672 | 47.8 | 42.6 | 38.8 | |
+|[config](configs/sparsevit/sparsevit_cfg1_42ms.py) | 672x672 | 41.3 | 42.4 | 38.5 | |
+|[config](configs/sparsevit/sparsevit_cfg2_35ms.py) | 672x672 | 34.2 | 41.6 | 37.7 | |
+|[config](configs/sparsevit/sparsevit_cfg3_33ms.py)  | 672x672 | 32.9 | 41.3 | 37.4 | |
+
 

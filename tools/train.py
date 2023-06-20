@@ -47,7 +47,6 @@ def select(model, configs):
     for name, module in model.named_modules():
         if isinstance(module, SwinBlockSequence):
             module.pruning_ratios = configs[int(name[16])]
-            print(name, configs[int(name[16])])
 
 def monkey_patch(model):
     def forward(self, *args, **kwargs):
@@ -252,7 +251,7 @@ def main():
     if cfg.get('random_sample', False):
         monkey_patch(model)
     if cfg.get('pruning_ratios', None):
-        print(cfg.pruning_ratios)
+        print('sparsity config:', cfg.pruning_ratios)
         select(model, cfg.pruning_ratios)
 
     # init rfnext if 'RFSearchHook' is defined in cfg
