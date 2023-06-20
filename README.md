@@ -2,12 +2,7 @@
 
 ### [website](https://sparsevit.mit.edu/) | [paper](https://arxiv.org/abs/2303.17605)
 
-<center >
-<figure class="half">
-<img src='resources/image.png' width=100> <img src='resources/image-1.png' width=100>
-</figure>
-</center>
-
+![Alt text](resources/image.png)
 
 ## Abstract
 
