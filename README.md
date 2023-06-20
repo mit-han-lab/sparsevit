@@ -3,9 +3,8 @@
 ### [website](https://sparsevit.mit.edu/) | [paper](https://arxiv.org/abs/2303.17605)
 
 <center >
-<figure>
-    <img src='resources/image.png'>
-    <img src='resources/image-1.png'>
+<figure class="half">
+<img src='resources/image.png' width=300> <img src='resources/image-1.png' width=300>
 </figure>
 </center>
 
